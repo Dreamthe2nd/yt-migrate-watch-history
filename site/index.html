@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>yt-migrate-watch-history — Replay &amp; migrate YouTube watch history</title>
+  <meta name="description" content="Minimal, production-grade Python + Playwright automation that replays a YouTube watch history from a local JSON file — Chrome login, Chromium playback, randomized 20–45 second dwell, SQLite state with automatic resume, and periodic browser recycling.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23ff4554'/%3E%3Cpath d='M9.5 7.5v9l8-4.5z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#overview">
+      <span class="brand-badge" aria-hidden="true">▶</span>
+      yt-migrate<span class="accent">-watch-history</span>
+    </a>
+    <div class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#prerequisites">Prerequisites</a>
+      <a href="#setup">Setup</a>
+      <a href="#usage">Usage</a>
+      <a href="#reference">Reference</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="overview">
+  <div class="wrap">
+    <p class="eyebrow">Python 3 · Playwright · sqlite3 — one file, zero framework</p>
+    <h1>Replay your entire YouTube watch history — <span class="grad">one video at a time.</span></h1>
+    <p class="lede">
+      <code>migrate_watch_history.py</code> replays every video in
+      <code>scraped_history.json</code> — the <strong>sole input</strong> — in reverse order,
+      dwells a randomized <strong>20–45 seconds</strong> on each page, and commits every completion
+      to a local <strong>SQLite</strong> database <em>before the next video starts</em>. Log in once
+      with your own <strong>Google Chrome</strong>; playback then runs in Playwright's muted
+      <strong>Chromium</strong>, which recycles itself every 50 videos so RAM and CPU stay flat for days.
+      Stop it at any moment — even a system shutdown — and it automatically resumes from the next video.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#prerequisites">Get started</a>
+      <a class="btn" href="#how-it-works">How it works ↓</a>
+    </div>
+    <div class="chips">
+      <span class="chip"><b>18,453</b>&nbsp;URLs in <code>scraped_history.json</code></span>
+      <span class="chip"><b>20–45 s</b>&nbsp;random dwell per video</span>
+      <span class="chip"><b>Chrome → Chromium</b>&nbsp;login vs. playback</span>
+      <span class="chip"><b>every 50</b>&nbsp;browser auto-recycle</span>
+      <span class="chip"><b>1 command</b>&nbsp;one-shot installer</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ HOW IT WORKS ============ -->
+  <section id="how-it-works">
+    <div class="wrap">
+      <p class="sec-label">01 · Pipeline</p>
+      <h2>How it works</h2>
+      <p class="sec-sub">Two browser stages, then a five-step loop executed once per URL in strict order.</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🖥️ Stage 1 — Login in <strong>your Chrome</strong></h3>
+          <p>On a fresh run (0 completed videos), the script opens <strong>Google Chrome</strong> itself
+          (<code>channel="chrome"</code>) on the shared <code>./chrome_profile</code> folder. You sign in
+          to YouTube there — with your real, already-authenticated Chrome profile habits and extensions —
+          confirm in the terminal, and Chrome closes. If Chrome isn't installed, it falls back to Chromium
+          for this one-time step.</p>
+        </div>
+        <div class="card">
+          <h3>🎬 Stage 2 — Playback in <strong>Playwright Chromium</strong></h3>
+          <p>The multi-day replay runs in Playwright's bundled <strong>Chromium</strong>, launched
+          <strong>muted</strong> (<code>--mute-audio</code>) on the <em>same</em>
+          <code>./chrome_profile</code> — so it inherits your Chrome login without touching your everyday
+          browser. Your real Chrome stays yours; automation stays isolated.</p>
+        </div>
+      </div>
+
+      <ol class="steps" style="margin-top: 34px;">
+        <li class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h3>Load &amp; reverse — the sole input</h3>
+            <p>Reads <code>scraped_history.json</code> (a JSON array of full video URLs), trims whitespace, and reverses the array so videos are processed from the original last index down to the first — <code>index -1 → 0</code>. This file is the <strong>only</strong> data source; the script never generates, samples, or fabricates history. (<code>scraped_history.example.json</code> is a shape reference for humans — it is never read by the script.)</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h3>Skip what's already done — automatic resume</h3>
+            <p>Every URL is checked against <code>state.db</code> before visiting. Because each watch is committed the moment it finishes, any closure — <kbd>Ctrl+C</kbd>, <code>SIGTERM</code>, crash, power loss, routine shutdown — means the <em>next</em> run simply skips everything recorded and starts from the <strong>next unwatched video</strong>, with zero manual bookkeeping.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h3>Watch the page</h3>
+            <p>Navigates with <code>wait_until="domcontentloaded"</code> (60 s timeout), waits up to 5 s for the <code>&lt;video&gt;</code> element, injects a small JS snippet that starts playback if the player is paused, then dwells for a randomized <strong>20–45 seconds</strong>.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="step-num">4</div>
+          <div>
+            <h3>Commit immediately — before anything else</h3>
+            <p>The instant the dwell completes — success <em>or</em> failure — the URL is inserted into <code>watched_videos</code> and <code>conn.commit()</code> runs <strong>before the next URL starts</strong>. A crash can never lose more than one in-flight view; this commit is what powers "automatically start from the next video" on every kind of closure.</p>
+          </div>
+        </li>
+        <li class="step">
+          <div class="step-num">5</div>
+          <div>
+            <h3>Refresh the browser — per video and every 50</h3>
+            <p>After each commit the page is unloaded to <code>about:blank</code> (frees that video's buffers immediately), and every <strong>50 watched videos</strong> the <em>entire</em> Chromium process is torn down and relaunched on the same profile
+            (<code>&gt; Browser recycled after 50 videos (RAM/CPU reset).</code>) — so memory and CPU never creep upward over a multi-day run. The login survives every recycle untouched.</p>
+          </div>
+        </li>
+      </ol>
+
+      <h3 class="sub-h">Key reliability decisions</h3>
+      <ul class="decisions">
+        <li><span class="dec-k">Chrome logs in, Chromium plays</span><span class="dec-v">Authentication happens once in your real Google Chrome (<code>channel="chrome"</code>); the long-running automation is a separate, muted Playwright Chromium on the shared profile — never your daily browser.</span></li>
+        <li><span class="dec-k">Commit before the next navigation</span><span class="dec-v">Every finished (or failed) URL is in <code>state.db</code> before the loop moves on — unexpected <em>or</em> routine closure always resumes at the next unwatched video.</span></li>
+        <li><span class="dec-k">Full browser recycle every 50 videos</span><span class="dec-v">Long Chromium runs leak memory; periodic relaunch keeps RAM/CPU flat. Per-video <code>about:blank</code> unload drops buffers between navigations. Tune via <code>BROWSER_RESTART_EVERY</code>.</span></li>
+        <li><span class="dec-k"><code>domcontentloaded</code>, never <code>networkidle</code></span><span class="dec-v">YouTube streaming and telemetry sockets stay open indefinitely — <code>networkidle</code> would hang and time out on essentially every video.</span></li>
+        <li><span class="dec-k"><code>--mute-audio</code> at browser launch</span><span class="dec-v">Views register without sound or notifications; a muted player is also what browsers allow to autoplay.</span></li>
+        <li><span class="dec-k">Per-URL <code>try/except</code></span><span class="dec-v">One removed video, region block, or transient network error logs a warning and marks the URL as attempted instead of killing a multi-day run.</span></li>
+        <li><span class="dec-k">Random 20–45 s dwell</span><span class="dec-v">Long enough for YouTube to treat each video as genuinely watched, randomized so the rhythm doesn't look mechanical.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ PREREQUISITES ============ -->
+  <section id="prerequisites" class="alt">
+    <div class="wrap">
+      <p class="sec-label">02 · Install</p>
+      <h2>Prerequisites &amp; installation</h2>
+      <p class="sec-sub">Python 3.10+ and one command. The installer does everything else.</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>Requirements</h3>
+          <ul class="reqs">
+            <li><b>Python 3.10 or newer</b> — 3.11 / 3.12 recommended</li>
+            <li><b>Google Chrome</b> (recommended) — used for the one-time login; if absent, the script falls back to Chromium for that step</li>
+            <li><b>A desktop session</b> — first run needs a visible browser window for the manual YouTube login</li>
+            <li><b>Steady internet + a machine you can leave on</b> — the full 18,453-video migration runs for several days</li>
+          </ul>
+          <p class="fine">Linux only: Chromium also needs a few system libraries — the installer handles them via <code>playwright install-deps</code>.</p>
+        </div>
+
+        <div class="card">
+          <h3>Install — one command</h3>
+          <div class="codeblock">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">Linux / macOS</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>./install.sh</code></pre>
+          </div>
+          <div class="codeblock">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">Windows</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>install.bat</code></pre>
+          </div>
+          <p class="fine">Creates <code>.venv</code>, installs <code>playwright</code> from <code>requirements.txt</code>, downloads the bundled Chromium, and on Linux also installs the system libraries. Done in one shot.</p>
+        </div>
+      </div>
+
+      <h3 class="sub-h">Manual equivalent (if you prefer)</h3>
+      <div class="codeblock">
+        <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>python3 --version        <span class="cm"># 3.10 or newer</span>
+
+python3 -m venv .venv
+source .venv/bin/activate    <span class="cm"># Windows: .venv\Scripts\activate</span>
+
+pip install -r requirements.txt
+playwright install chromium
+<span class="cm"># Linux only, once — installs system libraries (needs sudo):</span>
+<span class="cm"># playwright install-deps chromium</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section id="setup">
+    <div class="wrap">
+      <p class="sec-label">03 · Setup</p>
+      <h2>Setup</h2>
+      <p class="sec-sub">Three things: your data file, the two-stage first run, and the artifacts it creates.</p>
+
+      <h3 class="sub-h">Step 1 — Place <code>scraped_history.json</code> next to the script</h3>
+      <p>
+        The input is a plain JSON array of <strong>full video URLs</strong>, one item per video.
+        Paths are resolved relative to the script, so the file must sit in the same directory as
+        <code>migrate_watch_history.py</code>. Your file contains 18,453 entries.
+        Duplicates are harmless — the primary key keeps them in the state store exactly once.
+        <strong>This file is the script's sole input</strong> — nothing else is read, and no data is ever invented.
+      </p>
+      <div class="codeblock">
+        <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">scraped_history.json</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>[
+  <span class="st">"https://www.youtube.com/watch?v=dQw4w9WgXcQ"</span>,
+  <span class="st">"https://www.youtube.com/watch?v=9bZkp7q19f0"</span>,
+  <span class="st">"https://www.youtube.com/watch?v=hY7m5jjJ9mM"</span>
+  <span class="cm">/* …18,450 more… */</span>
+]</code></pre>
+      </div>
+      <p class="fine">See <code>scraped_history.example.json</code> in the repo for a shape reference — the script never reads it. The full <code>scraped_history.json</code> (18,453 URLs) is committed to the repo; <code>state.db</code> and <code>chrome_profile/</code> remain gitignored runtime artifacts.</p>
+
+      <h3 class="sub-h">Step 2 — First run: login in Chrome, playback in Chromium</h3>
+      <p>
+        Because <code>state.db</code> starts empty (0 completed videos), <strong>Stage 1</strong> opens
+        your installed <strong>Google Chrome</strong> on the shared profile and pauses for you to sign in;
+        <strong>Stage 2</strong> then launches muted Playwright <strong>Chromium</strong> on that same
+        profile and begins the replay:
+      </p>
+      <div class="codeblock">
+        <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">terminal — first run</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>$ python migrate_watch_history.py
+Loaded 18453 URLs from scraped_history.json; processing in reverse order (index -1 -&gt; 0).
+Dwell per video: 20-45s (random). State: state.db. Browser recycled every 50 videos.
+Stage 1 (login): opening Google Chrome on the shared profile...
+
+Log in to your YouTube account in the browser window,
+then press ENTER here. (Already logged in? Just press ENTER.)
+The session is saved in ./chrome_profile and reused by the
+playback stage (Chromium) automatically.
+<kbd>↵</kbd>
+Stage 1 complete - session stored in the shared profile.
+
+Stage 2 (playback): starting Chromium (muted) on profile chrome_profile...
+[1/18453] | Watched 33s | Remaining: 18452 | ETA: ~166.4 hours
+…</code></pre>
+      </div>
+      <p>
+        The login is stored in <code>chrome_profile/</code> — shared by both stages. Every later run
+        (and every mid-run browser recycle) reuses it automatically; Chrome never opens again unless
+        you delete the profile.
+      </p>
+
+      <h3 class="sub-h">Step 3 — Artifacts the script creates</h3>
+      <table class="tbl">
+        <thead><tr><th>Path</th><th>What it is</th><th>Touch it?</th></tr></thead>
+        <tbody>
+          <tr><td><code>state.db</code></td><td>SQLite progress store — the single source of truth for what has been watched. Written after <em>every</em> video.</td><td>Only to <em>retry</em> a failed URL (delete its row). Never edit by hand.</td></tr>
+          <tr><td><code>chrome_profile/</code></td><td>Shared persistent profile — cookies, login, preferences. Used by Chrome (login) <em>and</em> Chromium (playback).</td><td>Deleting it just logs you out; the next run re-runs Stage 1.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ USAGE ============ -->
+  <section id="usage" class="alt">
+    <div class="wrap">
+      <p class="sec-label">04 · Run</p>
+      <h2>How to use</h2>
+      <p class="sec-sub">One command. One line of telemetry per video. Safe to stop, safe to restart, safe to shut down.</p>
+
+      <div class="codeblock">
+        <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>$ python migrate_watch_history.py
+Loaded 18453 URLs from scraped_history.json; processing in reverse order (index -1 -&gt; 0).
+Dwell per video: 20-45s (random). State: state.db. Browser recycled every 50 videos.
+Resuming run: 1204 URLs already recorded in state.db - starting from the next unwatched video.
+
+[1205/18453] | Watched 31s  | Remaining: 17248 | ETA: ~155.1 hours
+[1206/18453] | Skipped (already in state.db) | Remaining: 17247 | ETA: ~155.1 hours
+[1207/18453] | Watched 24s  | Remaining: 17246 | ETA: ~154.9 hours
+[1208/18453] | WARNING: view failed (TimeoutError: page.goto: Timeout 60000ms exceeded) - marked as attempted | Remaining: 17245 | ETA: ~154.9 hours
+&gt; Browser recycled after 50 videos (RAM/CPU reset).
+[1209/18453] | Watched 41s  | Remaining: 17244 | ETA: ~154.7 hours
+…</code></pre>
+      </div>
+      <p class="fine">
+        Telemetry format: <code>[Current/Total] | Watched Xs | Remaining: Y | ETA: ~Z hours</code>,
+        plus a <code>&gt; Browser recycled after 50 videos</code> line at each refresh.
+        The ETA is computed from the <em>observed</em> average per-watch time (dwell + navigation overhead),
+        falling back to the 32.5 s dwell midpoint until the first view completes.
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3>Stop &amp; resume — any closure</h3>
+          <p><kbd>Ctrl+C</kbd>, a crash, power loss, or a routine system shutdown (<code>SIGTERM</code>) all take the same path: every finished view is already committed. Re-run later:</p>
+          <div class="codeblock inline">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">later</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>python migrate_watch_history.py
+# -> "Resuming run: N URLs already recorded
+#     - starting from the next unwatched video."</code></pre>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Retry a failed URL</h3>
+          <p>Failed URLs are marked as attempted (committed) on purpose — one dead link must never stall a multi-day run. To replay one, delete its row and re-run:</p>
+          <div class="codeblock inline">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>sqlite3 state.db <span class="st\">"DELETE FROM watched_videos
+WHERE url = 'https://www.youtube.com/watch?v=...';\"</span></code></pre>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Re-run after completion</h3>
+          <p>When the list is exhausted, every URL hits the skip path, so a re-run finishes in seconds and confirms the final count:</p>
+          <div class="codeblock inline">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code>Done. 18453/18453 URLs recorded in state.db.</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REFERENCE ============ -->
+  <section id="reference">
+    <div class="wrap">
+      <p class="sec-label">05 · Reference</p>
+      <h2>Runtime, schema &amp; design</h2>
+      <p class="sec-sub">The numbers, the state store, and the architecture rules the script follows.</p>
+
+      <h3 class="sub-h">Runtime estimate — 18,453 videos</h3>
+      <table class="tbl">
+        <thead><tr><th>Scenario</th><th>Dwell</th><th>Wall time (dwell only)</th><th>With overhead</th></tr></thead>
+        <tbody>
+          <tr><td>Fastest</td><td>20 s every video</td><td>≈ 102.5 h (4.3 days)</td><td>≈ 5 days</td></tr>
+          <tr><td>Typical</td><td>32.5 s average</td><td>≈ 166.6 h (7.0 days)</td><td>≈ 8–9 days</td></tr>
+          <tr><td>Slowest</td><td>45 s every video</td><td>≈ 230.7 h (9.6 days)</td><td>≈ 11 days</td></tr>
+        </tbody>
+      </table>
+      <p class="fine">Overhead = navigation (~1–3 s) + up to 5 s player wait per video, amortized across the periodic 50-video browser recycles. Skips cost ~0 s. Plan to leave the machine on for roughly a week, powered and with the screen unlocked or a screensaver that doesn't kill the browser.</p>
+
+      <div class="grid-2">
+        <div>
+          <h3 class="sub-h">State schema</h3>
+          <div class="codeblock">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">state.db — sqlite3</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code><span class="kw">CREATE TABLE IF NOT EXISTS</span> watched_videos (
+  url        <span class="kw">TEXT PRIMARY KEY</span>,
+  watched_at <span class="kw">TIMESTAMP</span>
+);
+<span class="cm">-- per video, committed immediately after the dwell:</span>
+<span class="kw">INSERT OR IGNORE INTO</span> watched_videos (url, watched_at)
+<span class="kw">VALUES</span> (?, <span class="st">'2026-09-24T07:41:05+00:00'</span>);</code></pre>
+          </div>
+          <p class="fine">Idempotency comes from the primary key + <code>INSERT OR IGNORE</code>, plus the pre-visit lookup that skips recorded URLs before the browser even opens a tab. Fixed schema — no extra tables or columns.</p>
+        </div>
+        <div>
+          <h3 class="sub-h">Browser lifecycle</h3>
+          <div class="codeblock">
+            <div class="codebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">refresh policy</span><button class="copy-btn" type="button">Copy</button></div>
+<pre><code><span class="cm"># Stage 1 (once): your Google Chrome</span>
+launch_persistent_context(
+  user_data_dir=<span class="st">"./chrome_profile"</span>,
+  channel=<span class="st">"chrome"</span>, headless=<span class="kw">False</span>)
+
+<span class="cm"># Stage 2: Playwright Chromium, muted</span>
+launch_persistent_context(
+  user_data_dir=<span class="st">"./chrome_profile"</span>,
+  args=[<span class="st">"--mute-audio"</span>], headless=<span class="kw">False</span>)
+
+<span class="cm"># after every commit:</span>
+page.goto(<span class="st">"about:blank"</span>)
+<span class="cm"># every 50 watched videos:</span>
+context.close(); relaunch()  <span class="cm"># &gt; Browser recycled...</span></code></pre>
+          </div>
+          <p class="fine">Both stages share <code>./chrome_profile</code>, so login persists across recycles. <code>SIGTERM</code> (routine/system shutdown) is routed to the same cleanup path as <kbd>Ctrl+C</kbd>.</p>
+        </div>
+      </div>
+
+      <h3 class="sub-h">Architecture rules</h3>
+      <div class="grid-2">
+        <div class="card"><h3>⛔ What it is not</h3><ul class="reqs"><li>No classes, no frameworks, no ORM</li><li>No external dependency beyond <code>playwright</code> — the rest is stdlib (<code>json</code>, <code>sqlite3</code>, <code>random</code>, <code>time</code>, <code>signal</code>, <code>pathlib</code>)</li><li>No fabricated data — <code>scraped_history.json</code> is the sole input; the example file is never read</li></ul></div>
+        <div class="card"><h3>✅ What it is</h3><ul class="reqs"><li>One ~250-line file, readable top to bottom</li><li>Idempotent by construction: every re-run (after any closure) resumes at the next video</li><li>Failure-isolated: the loop can never die on a single URL</li><li>Memory-safe over days: per-video unload + full recycle every 50 videos</li></ul></div>
+      </div>
+
+      <h3 class="sub-h">FAQ</h3>
+      <details class="faq"><summary>Why does login use Chrome but playback use Chromium?</summary><p>Your real Google Chrome is where you're already authenticated (and where Google trusts the browser most — extensions, profile history, cookies). Stage 1 lets you sign in there once, on a dedicated shared profile. Stage 2's long unattended run then happens in Playwright's bundled Chromium — a separate, controlled, muted browser — so automation never disturbs your everyday Chrome and vice versa. The shared <code>./chrome_profile</code> folder carries the session from one to the other. If Chrome isn't installed, Stage 1 falls back to Chromium.</p></details>
+      <details class="faq"><summary>Why is the browser refreshed frequently?</summary><p>Multi-day Chromium sessions slowly accumulate RAM and CPU overhead (media buffers, renderer processes, internal caches). Unloading each page to <code>about:blank</code> after its commit releases per-video memory immediately, and fully recycling the browser process every 50 watched videos resets everything else — keeping the machine healthy for the whole ~1-week run. Because the profile is persistent, each recycle comes back already logged in.</p></details>
+      <details class="faq"><summary>What happens if the system shuts down or the script is killed?</summary><p>Nothing is lost. Each URL is committed to <code>state.db</code> the moment its watch completes, <code>SIGTERM</code> is handled like <kbd>Ctrl+C</kbd> (clean browser close + a resume hint), and even a hard kill only risks the single in-flight video. The next run skips all recorded URLs and automatically starts from the next unwatched one.</p></details>
+      <details class="faq"><summary>Why is the array reversed?</summary><p>The script processes the list from its last entry to its first (original index <code>-1 → 0</code>), as specified for this migration — so if your scrape was newest-first, playback effectively runs in chronological order.</p></details>
+      <details class="faq"><summary>Why <code>domcontentloaded</code> and not <code>networkidle</code>?</summary><p>YouTube keeps streaming, telemetry, and social sockets open for as long as the page exists. <code>networkidle</code> requires a quiet window that effectively never arrives, so navigation would time out on most videos. <code>domcontentloaded</code> returns as soon as the page is usable, and the short <code>&lt;video&gt;</code> wait handles the rest.</p></details>
+      <details class="faq"><summary>What exactly happens to a failed URL?</summary><p>The warning is logged, then the URL is inserted into <code>watched_videos</code> like any other — "marked as attempted" — and the loop moves on. That trade-off keeps a single 404 from stalling an 8-day run. Delete the row (see Usage) if you want a specific URL replayed.</p></details>
+      <details class="faq"><summary>Is the data safe / private?</summary><p>The SQLite state and browser profile always stay on your machine. The script reads nothing but <code>scraped_history.json</code> — the example JSON is never opened. The only network traffic is Playwright driving your own logged-in YouTube session to the URLs in your file.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <p><span class="brand-badge sm" aria-hidden="true">▶</span> <strong>yt-migrate-watch-history</strong> — Python 3 + Playwright + sqlite3. Chrome logs in, Chromium plays, SQLite remembers.</p>
+    <p class="fine">Run it for days. It will still be exactly where you left it.</p>
+  </div>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

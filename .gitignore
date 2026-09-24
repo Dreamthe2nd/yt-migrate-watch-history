@@ -1,0 +1,8 @@
+# runtime artifacts - never commit these
+state.db
+chrome_profile/
+
+# python
+__pycache__/
+*.pyc
+.venv/
