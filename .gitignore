@@ -1,0 +1,9 @@
+# runtime artifacts - never commit these
+scraped_history.json
+state.db
+chrome_profile/
+
+# python
+__pycache__/
+*.pyc
+.venv/
