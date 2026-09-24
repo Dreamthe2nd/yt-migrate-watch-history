@@ -33,7 +33,7 @@ playwright install chromium
 
 ## Usage
 
-1. Place **your** `scraped_history.json` (a JSON array of full video URLs — your data, e.g. the 18,453-entry list) in this folder. It is the script's **sole input** and is never generated, sampled, or fabricated by the project. (`scraped_history.example.json` is a shape reference only — the script never reads it.)
+1. Place **your** `scraped_history.json` (a JSON array of full video URLs — e.g. the 18,453-entry list included in this repo) next to the script. It is the script's **sole input** and is never generated, sampled, or fabricated by the project. (`scraped_history.example.json` is a shape reference only — the script never reads it.)
 2. Run:
 
    ```bash
@@ -60,7 +60,7 @@ playwright install chromium
 | --- | --- | --- |
 | `migrate_watch_history.py` | The entire automation | yes |
 | `install.sh` / `install.bat` / `requirements.txt` | One-command setup | yes |
-| `scraped_history.json` | Input: your JSON array of video URLs | no (gitignored — it's yours) |
+| `scraped_history.json` | Input: JSON array of 18,453 video URLs (the sole input) | yes |
 | `scraped_history.example.json` | Shape reference (never read by the script) | yes |
 | `state.db` | SQLite progress store (`watched_videos` table) | no (gitignored) |
 | `chrome_profile/` | Shared persistent profile (Chrome login + Chromium playback) | no (gitignored) |

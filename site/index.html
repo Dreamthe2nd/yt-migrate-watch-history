@@ -205,7 +205,7 @@ playwright install chromium
   <span class="cm">/* …18,450 more… */</span>
 ]</code></pre>
       </div>
-      <p class="fine">See <code>scraped_history.example.json</code> in the repo for a shape reference — the script never reads it. The real data file is gitignored — it's yours and stays local.</p>
+      <p class="fine">See <code>scraped_history.example.json</code> in the repo for a shape reference — the script never reads it. The full <code>scraped_history.json</code> (18,453 URLs) is committed to the repo; <code>state.db</code> and <code>chrome_profile/</code> remain gitignored runtime artifacts.</p>
 
       <h3 class="sub-h">Step 2 — First run: login in Chrome, playback in Chromium</h3>
       <p>
@@ -379,7 +379,7 @@ context.close(); relaunch()  <span class="cm"># &gt; Browser recycled...</span><
       <details class="faq"><summary>Why is the array reversed?</summary><p>The script processes the list from its last entry to its first (original index <code>-1 → 0</code>), as specified for this migration — so if your scrape was newest-first, playback effectively runs in chronological order.</p></details>
       <details class="faq"><summary>Why <code>domcontentloaded</code> and not <code>networkidle</code>?</summary><p>YouTube keeps streaming, telemetry, and social sockets open for as long as the page exists. <code>networkidle</code> requires a quiet window that effectively never arrives, so navigation would time out on most videos. <code>domcontentloaded</code> returns as soon as the page is usable, and the short <code>&lt;video&gt;</code> wait handles the rest.</p></details>
       <details class="faq"><summary>What exactly happens to a failed URL?</summary><p>The warning is logged, then the URL is inserted into <code>watched_videos</code> like any other — "marked as attempted" — and the loop moves on. That trade-off keeps a single 404 from stalling an 8-day run. Delete the row (see Usage) if you want a specific URL replayed.</p></details>
-      <details class="faq"><summary>Is the data safe / private?</summary><p>Everything stays local: the JSON input, the SQLite state, and the browser profile never leave your machine. The example JSON in the repo is illustrative only — the script reads nothing but your <code>scraped_history.json</code>. The only network traffic is Playwright driving your own logged-in YouTube session to the URLs in your file.</p></details>
+      <details class="faq"><summary>Is the data safe / private?</summary><p>The SQLite state and browser profile always stay on your machine. The script reads nothing but <code>scraped_history.json</code> — the example JSON is never opened. The only network traffic is Playwright driving your own logged-in YouTube session to the URLs in your file.</p></details>
     </div>
   </section>
 </main>
