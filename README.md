@@ -52,67 +52,6 @@ A cross-platform automation utility designed to migrate YouTube watch history fr
 ```
 Place the downloaded scraped_history.json file directly into the repository root.
 
-Here is a comprehensive, production-ready `README.md` structured for your repository:
-
-```markdown
-# YouTube Watch History Migrator
-
-A cross-platform automation utility designed to migrate YouTube watch history from one account to another[cite: 1]. Replays historical video links in chronological sequence using Playwright and an SQLite state engine to seamlessly reconstruct recommendation embeddings on a new profile[cite: 1].
-
----
-
-## Features
-
-- **Algorithmic Chronology:** Iterates backward through exported history (from oldest to newest) to preserve the natural evolution of feed recommendations[cite: 1].
-- **Two-Stage Authentication:** Uses a native, unautomated browser instance for initial Google sign-in to bypass bot detection, storing credentials in a persistent profile.
-- **Resilient State Tracking:** Uses SQLite (`state.db`) to record each completed video before advancing. Survives Ctrl+C, power outages, and scheduled system reboots without duplicate attempts[cite: 1].
-- **Anti-Bot & Memory Hygiene:** Features randomized dwell times, muted audio (`--mute-audio`), automatic `about:blank` cache resets, and periodic browser process recycling every 50 videos[cite: 1].
-- **Cross-Platform:** Out-of-the-box support for Windows, macOS, and Linux[cite: 1].
-
----
-
-## Prerequisites
-
-- **Python:** 3.8 or newer[cite: 1]
-- **Google Chrome:** Installed on the host system (required for Stage-1 safe authentication)
-
----
-
-## Quick Start
-
-### 1. Extract Your Watch History
-1. Log into your source account and navigate to [myactivity.google.com](https://myactivity.google.com).
-2. Filter or scroll down to the history range you wish to migrate.
-3. Open your browser's Developer Tools Console (`F12` or `Ctrl+Shift+I` / `Cmd+Option+I`) and paste:
-
-```javascript
-(() => {
-  const links = Array.from(document.querySelectorAll('a[href*="[youtube.com/watch](https://youtube.com/watch)"], a[href*="youtu.be"]'))
-    .map(a => a.href.split('&')[0])
-    .filter((url, idx, arr) => arr.indexOf(url) === idx && !url.includes('/channel/') && !url.includes('/post/'));
-
-  if (links.length === 0) {
-    console.warn("No links detected. Scroll up/down slightly or check if cards are rendered.");
-    return;
-  }
-
-  const blob = new Blob([JSON.stringify(links, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'scraped_history.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  console.log(`Exported ${links.length} clean video URLs!`);
-})();
-
-```
-
-4. Place the downloaded `scraped_history.json` file directly into the repository root.
-
----
-
 ### 2. Installation
 
 Clone the repository and run the automated installer for your OS:
