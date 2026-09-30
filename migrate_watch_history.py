@@ -7,8 +7,11 @@ State   : state.db              (sqlite3; table watched_videos(url, watched_at))
 Profile : chrome_profile/       (shared persistent profile)
 
 Two-stage browser design:
-  1. LOGIN    - the user's Google Chrome (channel="chrome") opens on the
-                shared profile; you log in once, the terminal confirms.
+  1. LOGIN    - the user's installed Google Chrome is started as a PLAIN OS
+                process (NO Playwright/CDP automation attached -- Google
+                rejects sign-in from automated browsers with "This browser
+                or app may not be secure"). You sign in once, close that
+                window, and the session is stored in ./chrome_profile.
   2. PLAYBACK - Playwright's bundled Chromium (muted via --mute-audio) opens
                 the SAME profile and does the multi-day replay, so playback
                 is isolated from the user's everyday browser.
@@ -28,14 +31,18 @@ Reliability:
 
 Usage:
     python migrate_watch_history.py
+    python migrate_watch_history.py --login   # force Stage 1 again (e.g. after a blocked sign-in)
 """
 
 from __future__ import annotations
 
 import json
+import os
 import random
+import shutil
 import signal
 import sqlite3
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -67,6 +74,33 @@ START_PLAYBACK_JS = """
 """
 
 
+def find_chrome_executable() -> str | None:
+    """Locate the user's installed Google Chrome binary (plain, not via Playwright)."""
+    env = os.environ
+    candidates: list[Path] = []
+    if sys.platform.startswith("win"):
+        for var in ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "LOCALAPPDATA"):
+            base = env.get(var)
+            if base:
+                candidates.append(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
+    elif sys.platform == "darwin":
+        candidates.append(Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
+        candidates.append(Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    else:
+        for name in ("google-chrome", "google-chrome-stable"):
+            found = shutil.which(name)
+            if found:
+                return found
+        candidates.append(Path("/opt/google/chrome/google-chrome"))
+    seen: set[str] = set()
+    for cand in candidates:
+        key = str(cand)
+        if key not in seen and cand.exists():
+            return key
+        seen.add(key)
+    return None
+
+
 def init_db() -> sqlite3.Connection:
     """Create state.db and the watched_videos table if they do not exist yet."""
     conn = sqlite3.connect(DB_FILE)
@@ -92,46 +126,91 @@ def load_urls() -> list[str]:
     return list(reversed(urls))
 
 
-def open_browser(pw: Playwright, *, chrome: bool = False, muted: bool = False):
-    """Launch a persistent-context browser on the shared ./chrome_profile.
+def open_browser(pw: Playwright, *, muted: bool = False, login: bool = False):
+    """Launch Playwright's bundled Chromium on the shared ./chrome_profile.
 
-    chrome=True  -> the user's installed Google Chrome (login stage)
-    chrome=False -> Playwright's bundled Chromium (playback stage)
+    muted -> add --mute-audio (playback stage)
+    login -> soften the automation fingerprint for the no-Chrome login fallback
+    Retries in case the Stage-1 Chrome window just closed and the profile
+    lock has not been released yet.
     """
+    args: list[str] = []
+    if muted:
+        args.append("--mute-audio")
+    if login:
+        args.append("--disable-blink-features=AutomationControlled")
     kwargs: dict = {
         "user_data_dir": str(PROFILE_DIR),
         "headless": False,
         "viewport": {"width": 1366, "height": 900},
     }
-    if chrome:
-        kwargs["channel"] = "chrome"
-    if muted:
-        kwargs["args"] = ["--mute-audio"]
-    context = pw.chromium.launch_persistent_context(**kwargs)
-    page = context.pages[0] if context.pages else context.new_page()
-    return context, page
+    if args:
+        kwargs["args"] = args
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            context = pw.chromium.launch_persistent_context(**kwargs)
+            page = context.pages[0] if context.pages else context.new_page()
+            return context, page
+        except Exception as exc:
+            last_exc = exc
+            if attempt == 2:
+                raise
+            first = str(exc).splitlines()[0] if str(exc) else "no message"
+            print(f"  Browser could not start ({exc.__class__.__name__}: {first}). "
+                  f"Close any leftover Stage-1 Chrome window - retrying in 3s...")
+            time.sleep(3)
+    raise last_exc  # unreachable
 
 
 def ensure_login(pw: Playwright) -> None:
-    """Stage 1: one-time manual login, handled by the user's Chrome."""
-    print("Stage 1 (login): opening Google Chrome on the shared profile...")
-    try:
-        context, page = open_browser(pw, chrome=True)
-    except Exception as exc:
-        print(f"  Chrome not available ({exc.__class__.__name__}) - "
-              f"falling back to Chromium for the one-time login.")
-        context, page = open_browser(pw)
+    """Stage 1: one-time manual login in the user's REAL Chrome.
+
+    Chrome is launched as a plain OS process with NO Playwright/CDP attached:
+    Google blocks sign-in from automation-attached browsers ("This browser
+    or app may not be secure"). The session lands in ./chrome_profile, which
+    Stage 2's Chromium reuses. Use --login to force this stage again.
+    """
+    chrome = find_chrome_executable()
+    if chrome:
+        print("Stage 1 (login): opening your Google Chrome (plain window, no automation)...")
+        print("  1. Sign in to YouTube in that Chrome window.")
+        print("  2. CLOSE the window when done - the script continues automatically.")
+        proc = subprocess.Popen(
+            [
+                chrome,
+                f"--user-data-dir={PROFILE_DIR}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "https://www.youtube.com",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            proc.wait()  # waits for the Chrome window to be closed; Ctrl+C works here
+        except KeyboardInterrupt:
+            proc.terminate()
+            raise
+        time.sleep(2)  # let Chrome release the profile lock
+        print("Stage 1 complete - session stored in the shared profile.\n")
+        return
+
+    # No system Chrome: fall back to Playwright's Chromium (may be blocked by Google).
+    print("Stage 1 (login): Google Chrome not found on this system.")
+    print("  Falling back to Playwright's Chromium. Google often refuses sign-in")
+    print('  there ("This browser or app may not be secure"). If that happens,')
+    print("  install Google Chrome and re-run - Stage 1 will then use it.")
+    context, page = open_browser(pw, login=True)
     try:
         page.goto("https://www.youtube.com", wait_until="domcontentloaded")
         input(
-            "\nLog in to your YouTube account in the browser window,\n"
-            "then press ENTER here. (Already logged in? Just press ENTER.)\n"
-            "The session is saved in ./chrome_profile and reused by the\n"
-            "playback stage (Chromium) automatically.\n"
+            "\nTry to sign in in the browser window (it may be blocked by Google),\n"
+            "then press ENTER here.\n"
         )
     finally:
-        context.close()
-    print("Stage 1 complete - session stored in the shared profile.\n")
+        close_quiet(context)
+    print("Stage 1 done.\n")
 
 
 def close_quiet(context: BrowserContext) -> None:
@@ -157,13 +236,16 @@ def main() -> None:
     urls = load_urls()
     conn = init_db()
     total = len(urls)
+    force_login = "--login" in sys.argv[1:]
     print(f"Loaded {total} URLs from {HISTORY_FILE.name}; processing in reverse order (index -1 -> 0).")
     print(f"Dwell per video: {DWELL_MIN_S}-{DWELL_MAX_S}s (random). State: {DB_FILE.name}. "
           f"Browser recycled every {BROWSER_RESTART_EVERY} videos.")
 
     with sync_playwright() as pw:
         completed = conn.execute("SELECT COUNT(*) FROM watched_videos").fetchone()[0]
-        if completed == 0:
+        if completed == 0 or force_login:
+            if completed:
+                print(f"--login: forcing Stage 1 before resuming {completed} recorded videos.")
             ensure_login(pw)
         else:
             print(f"Resuming run: {completed} URLs already recorded in {DB_FILE.name} - "
