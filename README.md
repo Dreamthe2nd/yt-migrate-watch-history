@@ -8,17 +8,17 @@ The project is intended only for use for account and algorithm migration.
 
 ## Features
 
-- **Algorithmic Chronology:** Iterates backward through exported history (from oldest to newest) to preserve the natural evolution of feed recommendations[cite: 1].
+- **Algorithmic Chronology:** Iterates backward through exported history (from oldest to newest) to preserve the natural evolution of feed recommendations.
 - **Two-Stage Authentication:** Uses a native, unautomated browser instance for initial Google sign-in to bypass bot detection, storing credentials in a persistent profile.
-- **Resilient State Tracking:** Uses SQLite (`state.db`) to record each completed video before advancing. Survives Ctrl+C, power outages, and scheduled system reboots without duplicate attempts[cite: 1].
-- **Anti-Bot & Memory Hygiene:** Features randomized dwell times, muted audio (`--mute-audio`), automatic `about:blank` cache resets, and periodic browser process recycling every 50 videos[cite: 1].
-- **Cross-Platform:** Out-of-the-box support for Windows, macOS, and Linux[cite: 1].
+- **Resilient State Tracking:** Uses SQLite (`state.db`) to record each completed video before advancing. Survives Ctrl+C, power outages, and scheduled system reboots without duplicate attempts.
+- **Anti-Bot & Memory Hygiene:** Features randomized dwell times, muted audio (`--mute-audio`), automatic `about:blank` cache resets, and periodic browser process recycling every 50 videos.
+- **Cross-Platform:** Out-of-the-box support for Windows, macOS, and Linux.
 
 ---
 
 ## Prerequisites
 
-- **Python:** 3.8 or newer[cite: 1]
+- **Python:** 3.8 or newer.
 - **Google Chrome:** Installed on the host system (required for Stage-1 safe authentication)
 
 ---
