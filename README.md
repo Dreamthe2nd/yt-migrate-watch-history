@@ -1,6 +1,7 @@
 # YouTube Watch History Migrator
 
 A cross-platform automation utility designed to migrate YouTube watch history from one account to another. Replays historical video links in chronological sequence using Playwright and an SQLite state engine to seamlessly reconstruct recommendation embeddings on a new profile[cite: 1].
+The project is intended only for use for account and algorithm migration.
 
 ---
 
